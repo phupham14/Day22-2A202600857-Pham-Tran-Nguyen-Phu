@@ -11,9 +11,34 @@ Cách dùng:
 """
 import sys
 from pathlib import Path
+from typing import List
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import config
+
+from langchain_core.embeddings import Embeddings
+
+
+class GeminiEmbeddings(Embeddings):
+    """Wrapper dùng google-genai SDK mới (v1 API) để embed với Gemini models."""
+
+    def __init__(self, model: str, api_key: str):
+        from google import genai as _genai
+        self.model = model
+        self._client = _genai.Client(api_key=api_key)
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        # Gemini API giới hạn tối đa 100 texts mỗi batch
+        batch_size = 100
+        all_embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            result = self._client.models.embed_content(model=self.model, contents=batch)
+            all_embeddings.extend(e.values for e in result.embeddings)
+        return all_embeddings
+
+    def embed_query(self, text: str) -> List[float]:
+        return self.embed_documents([text])[0]
 
 
 def get_llm(provider: str = None, temperature: float = 0.0):
@@ -116,10 +141,11 @@ def get_embeddings(provider: str = None):
         return OpenAIEmbeddings(**kwargs)
 
     elif provider == "gemini":
-        from langchain_google_genai import GoogleGenerativeAIEmbeddings
-        return GoogleGenerativeAIEmbeddings(
+        # langchain_google_genai dùng SDK cũ (v1beta) không hỗ trợ model mới.
+        # GeminiEmbeddings dùng google-genai SDK mới (v1 API).
+        return GeminiEmbeddings(
             model=config.GEMINI_EMBEDDING_MODEL,
-            google_api_key=config.GOOGLE_API_KEY,
+            api_key=config.GOOGLE_API_KEY,
         )
 
     elif provider == "anthropic":
